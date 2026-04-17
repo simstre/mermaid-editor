@@ -186,6 +186,13 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      padding-right: 8px;
+    }
+
+    .preview-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
 
     .error-indicator {
@@ -199,12 +206,53 @@
 
     .error-indicator.visible { display: inline; }
 
+    .zoom-controls {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    .zoom-btn {
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      width: 26px;
+      height: 26px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      transition: background 0.15s;
+    }
+
+    .zoom-btn:hover { background: var(--border); }
+
+    .zoom-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text);
+      min-width: 42px;
+      text-align: center;
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 4px;
+    }
+
+    .zoom-label:hover { background: var(--surface2); }
+
     #preview-container {
       flex: 1;
       overflow: auto;
       display: flex;
-      align-items: center;
-      justify-content: center;
+      align-items: safe center;
+      justify-content: safe center;
       padding: 24px;
       background: #ffffff;
       transition: background-color 0.2s;
@@ -215,8 +263,10 @@
     }
 
     #preview svg {
+      display: block;
       max-width: 100%;
       height: auto;
+      margin: 0 auto;
     }
 
     /* Customization panel */
@@ -394,8 +444,15 @@
 
     <div class="preview-pane">
       <div class="pane-header">
-        Preview
-        <span class="error-indicator" id="error-indicator">⚠ Syntax error</span>
+        <div class="preview-header-left">
+          <span>Preview</span>
+          <span class="error-indicator" id="error-indicator">⚠ Syntax error</span>
+        </div>
+        <div class="zoom-controls">
+          <button class="zoom-btn" id="zoom-out" title="Zoom out (Ctrl/⌘ -)">−</button>
+          <span class="zoom-label" id="zoom-label" title="Reset to 100%">100%</span>
+          <button class="zoom-btn" id="zoom-in" title="Zoom in (Ctrl/⌘ +)">+</button>
+        </div>
       </div>
       <div id="preview-container">
         <div id="preview"></div>
@@ -535,6 +592,9 @@
     const previewContainer = document.getElementById('preview-container');
     const errorIndicator = document.getElementById('error-indicator');
     const downloadMenu = document.getElementById('download-menu');
+    const zoomInBtn = document.getElementById('zoom-in');
+    const zoomOutBtn = document.getElementById('zoom-out');
+    const zoomLabel = document.getElementById('zoom-label');
 
     // Controls
     const ctrlTheme = document.getElementById('ctrl-theme');
@@ -722,22 +782,43 @@
     document.addEventListener('click', () => downloadMenu.classList.remove('open'));
 
     // Export functions
-    function getSvgString() {
+    const EXPORT_MARGIN = 24;
+
+    // Build an export-ready SVG: tight viewBox around actual content + symmetric
+    // margin on all sides so the diagram is visually centered regardless of any
+    // asymmetric whitespace mermaid may leave in its own viewBox.
+    function buildExportSvg() {
       const svgEl = preview.querySelector('svg');
       if (!svgEl) return null;
       const clone = svgEl.cloneNode(true);
-      // Ensure dimensions
-      const bbox = svgEl.getBoundingClientRect();
-      clone.setAttribute('width', bbox.width);
-      clone.setAttribute('height', bbox.height);
-      // Set background
+
+      let content;
+      try {
+        content = svgEl.getBBox();
+      } catch (e) {
+        const r = svgEl.getBoundingClientRect();
+        content = { x: 0, y: 0, width: r.width, height: r.height };
+      }
+
+      const m = EXPORT_MARGIN;
+      const x = content.x - m;
+      const y = content.y - m;
+      const w = content.width + 2 * m;
+      const h = content.height + 2 * m;
+      clone.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
+      clone.setAttribute('width', w);
+      clone.setAttribute('height', h);
+
       const bg = ctrlBgColor.value;
       const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      rect.setAttribute('width', '100%');
-      rect.setAttribute('height', '100%');
+      rect.setAttribute('x', x);
+      rect.setAttribute('y', y);
+      rect.setAttribute('width', w);
+      rect.setAttribute('height', h);
       rect.setAttribute('fill', bg);
       clone.insertBefore(rect, clone.firstChild);
-      return new XMLSerializer().serializeToString(clone);
+
+      return { svg: new XMLSerializer().serializeToString(clone), width: w, height: h };
     }
 
     function getFilenameBase() {
@@ -761,20 +842,18 @@
     }
 
     function exportSVG() {
-      const svgStr = getSvgString();
-      if (!svgStr) return;
-      const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+      const result = buildExportSvg();
+      if (!result) return;
+      const blob = new Blob([result.svg], { type: 'image/svg+xml;charset=utf-8' });
       downloadBlob(blob, `${getFilenameBase()}.svg`);
     }
 
     function exportPNG(scale) {
-      const svgEl = preview.querySelector('svg');
-      if (!svgEl) return;
+      const result = buildExportSvg();
+      if (!result) return;
 
-      const svgStr = getSvgString();
-      const bbox = svgEl.getBoundingClientRect();
-      const width = bbox.width * scale;
-      const height = bbox.height * scale;
+      const width = result.width * scale;
+      const height = result.height * scale;
 
       const canvas = document.createElement('canvas');
       canvas.width = width;
@@ -789,11 +868,10 @@
         }, 'image/png');
       };
       img.onerror = () => {
-        // Fallback: try with base64 encoding
-        const b64 = btoa(unescape(encodeURIComponent(svgStr)));
+        const b64 = btoa(unescape(encodeURIComponent(result.svg)));
         img.src = 'data:image/svg+xml;base64,' + b64;
       };
-      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(result.svg);
     }
 
     // Download menu items
@@ -806,6 +884,52 @@
         else if (format === 'png-2x') exportPNG(2);
         else if (format === 'png-4x') exportPNG(4);
       });
+    });
+
+    // Zoom controls
+    const ZOOM_MIN = 0.25;
+    const ZOOM_MAX = 4;
+    const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4];
+    let zoomLevel = 1;
+
+    function applyZoom() {
+      preview.style.zoom = zoomLevel;
+      zoomLabel.textContent = Math.round(zoomLevel * 100) + '%';
+    }
+
+    function setZoom(z) {
+      zoomLevel = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+      applyZoom();
+    }
+
+    function zoomStep(dir) {
+      if (dir > 0) {
+        const next = ZOOM_STEPS.find(s => s > zoomLevel + 0.001);
+        setZoom(next ?? ZOOM_MAX);
+      } else {
+        const prev = [...ZOOM_STEPS].reverse().find(s => s < zoomLevel - 0.001);
+        setZoom(prev ?? ZOOM_MIN);
+      }
+    }
+
+    zoomInBtn.addEventListener('click', () => zoomStep(1));
+    zoomOutBtn.addEventListener('click', () => zoomStep(-1));
+    zoomLabel.addEventListener('click', () => setZoom(1));
+
+    // Ctrl/Cmd + wheel to zoom inside the preview
+    previewContainer.addEventListener('wheel', (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      zoomStep(e.deltaY < 0 ? 1 : -1);
+    }, { passive: false });
+
+    // Ctrl/Cmd +/- keyboard shortcuts (when preview pane is focused area)
+    document.addEventListener('keydown', (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.target === editor) return;
+      if (e.key === '=' || e.key === '+') { e.preventDefault(); zoomStep(1); }
+      else if (e.key === '-') { e.preventDefault(); zoomStep(-1); }
+      else if (e.key === '0') { e.preventDefault(); setZoom(1); }
     });
 
     // Initial render
