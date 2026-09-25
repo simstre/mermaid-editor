@@ -69,6 +69,14 @@
       align-items: center;
     }
 
+    .privacy-link {
+      font-size: 12px;
+      color: var(--text-dim);
+      text-decoration: none;
+      margin-right: 4px;
+    }
+    .privacy-link:hover { color: var(--text); }
+
     .btn {
       font-family: 'Inter', sans-serif;
       font-size: 13px;
@@ -416,6 +424,7 @@
   <header>
     <h1><span class="icon">◇</span> Mermaid Editor</h1>
     <div class="header-actions">
+      <a class="privacy-link" href="/privacy.html">Privacy</a>
       <button class="btn" id="btn-reset">Reset Theme</button>
       <div class="dropdown">
         <button class="btn btn-primary" id="btn-download">↓ Download</button>
